@@ -1,0 +1,1424 @@
+<!DOCTYPE html><html lang="zh-Hant"><head><meta name="x-poe-datastore-behavior" content="local_only"><meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://code.jquery.com https://unpkg.com https://d3js.org https://threejs.org https://cdn.plot.ly https://stackpath.bootstrapcdn.com https://maps.googleapis.com https://cdn.tailwindcss.com https://ajax.googleapis.com https://kit.fontawesome.com https://cdn.datatables.net https://maxcdn.bootstrapcdn.com https://code.highcharts.com https://tako-static-assets-production.s3.amazonaws.com https://www.youtube.com https://fonts.googleapis.com https://fonts.gstatic.com https://pfst.cf2.poecdn.net https://puc.poecdn.net https://i.imgur.com https://wikimedia.org https://*.icons8.com https://*.giphy.com https://picsum.photos https://images.unsplash.com; frame-src 'self' https://www.youtube.com https://trytako.com; child-src 'self'; manifest-src 'self'; worker-src 'self'; upgrade-insecure-requests; block-all-mixed-content;">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D 教室實景射擊模擬器 // ROOM FPS</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    body {
+      overflow: hidden;
+      background: #0f1216;
+      font-family: "Segoe UI", "PingFang HK", "Microsoft JhengHei", sans-serif;
+      color: #f0f4f8;
+    }
+
+    #gameCanvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* 準星 */
+    #crosshair {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      width: 24px;
+      height: 24px;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 10;
+      transition: transform 0.06s ease-out;
+    }
+    .ch-line {
+      position: absolute;
+      background: rgba(80, 255, 160, 0.92);
+      box-shadow: 0 0 4px rgba(0, 0, 0, 0.85);
+    }
+    .ch-top    { width: 2px; height: 6px; left: 11px; top: 1px; }
+    .ch-bottom { width: 2px; height: 6px; left: 11px; bottom: 1px; }
+    .ch-left   { width: 6px; height: 2px; left: 1px; top: 11px; }
+    .ch-right  { width: 6px; height: 2px; right: 1px; top: 11px; }
+    .ch-dot    { width: 2px; height: 2px; left: 11px; top: 11px; background: #ffffff; }
+
+    /* 命中反饋 X 標記 */
+    #hitMarker {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      width: 18px;
+      height: 18px;
+      transform: translate(-50%, -50%) rotate(45deg);
+      pointer-events: none;
+      opacity: 0;
+      z-index: 11;
+      transition: opacity 0.08s;
+    }
+    #hitMarker::before, #hitMarker::after {
+      content: "";
+      position: absolute;
+      background: #ff4757;
+      box-shadow: 0 0 6px #ff4757;
+    }
+    #hitMarker::before { width: 18px; height: 2px; top: 8px; left: 0; }
+    #hitMarker::after  { width: 2px; height: 18px; left: 8px; top: 0; }
+
+    /* 左上資訊面板 */
+    #hudTopLeft {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      background: rgba(15, 20, 28, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      backdrop-filter: blur(6px);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      line-height: 1.6;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .hud-title {
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: #67e8f9;
+      margin-bottom: 2px;
+    }
+    .key-badge {
+      display: inline-block;
+      padding: 0 5px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.15);
+      font-family: Consolas, monospace;
+      font-size: 11px;
+      color: #fff;
+    }
+
+    /* 右下彈藥與分數 HUD */
+    #hudBottomRight {
+      position: fixed;
+      bottom: 20px;
+      right: 24px;
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      background: rgba(15, 20, 28, 0.78);
+      border-left: 3px solid #38bdf8;
+      padding: 10px 18px;
+      border-radius: 6px;
+      backdrop-filter: blur(6px);
+      z-index: 10;
+      pointer-events: none;
+      font-family: Consolas, "JetBrains Mono", monospace;
+    }
+    #ammoCurrent {
+      font-size: 32px;
+      font-weight: 800;
+      color: #ffffff;
+    }
+    #ammoReserve {
+      font-size: 16px;
+      color: #94a3b8;
+    }
+    #scoreBox {
+      font-size: 12px;
+      color: #fbbf24;
+      border-left: 1px solid rgba(255,255,255,0.2);
+      padding-left: 12px;
+    }
+
+    /* 點擊開始遮罩 */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(20, 28, 38, 0.72), rgba(8, 12, 18, 0.92));
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 30;
+      cursor: pointer;
+      text-align: center;
+      padding: 24px;
+    }
+    #overlay.hidden {
+      display: none;
+    }
+    .start-card {
+      max-width: 480px;
+      background: rgba(24, 32, 44, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      border-radius: 14px;
+      padding: 28px 32px;
+      box-shadow: 0 24px 50px rgba(0, 0, 0, 0.6);
+    }
+    .start-card h1 {
+      font-size: 22px;
+      margin-bottom: 10px;
+      color: #f8fafc;
+      letter-spacing: 1px;
+    }
+    .start-card p {
+      font-size: 14px;
+      color: #cbd5e1;
+      line-height: 1.65;
+      margin-bottom: 18px;
+    }
+    .start-btn {
+      display: inline-block;
+      background: linear-gradient(135deg, #0ea5e9, #2563eb);
+      color: #fff;
+      font-weight: 700;
+      padding: 11px 26px;
+      border-radius: 8px;
+      font-size: 15px;
+      letter-spacing: 1px;
+      box-shadow: 0 6px 20px rgba(14, 165, 233, 0.4);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 準星與命中提示 -->
+  <div id="crosshair">
+    <div class="ch-line ch-top"></div>
+    <div class="ch-line ch-bottom"></div>
+    <div class="ch-line ch-left"></div>
+    <div class="ch-line ch-right"></div>
+    <div class="ch-dot"></div>
+  </div>
+  <div id="hitMarker"></div>
+
+  <!-- 左上角操作提示 -->
+  <div id="hudTopLeft">
+    <div class="hud-title">ROOM RECON // 3D 實景教室</div>
+    <div><span class="key-badge">WASD</span> 移動 &nbsp;<span class="key-badge">Shift</span> 衝刺 &nbsp;<span class="key-badge">Space</span> 跳躍</div>
+    <div><span class="key-badge">左鍵</span> 開槍 &nbsp;<span class="key-badge">右鍵</span> 瞄準 &nbsp;<span class="key-badge">R</span> 換彈</div>
+    <div><span class="key-badge">T</span> 戰術靶牌開關 &nbsp;<span class="key-badge">G</span> 修復教室 &nbsp;<span class="key-badge">ESC</span> 暫停</div>
+  </div>
+
+  <!-- 右下角彈藥與破壞統計 -->
+  <div id="hudBottomRight">
+    <div>
+      <span id="ammoCurrent">30</span>
+      <span id="ammoReserve">/ ∞</span>
+    </div>
+    <div id="scoreBox">命中目標: <span id="hitCount">0</span></div>
+  </div>
+
+  <!-- 啟動鎖定滑鼠遮罩 -->
+  <div id="overlay">
+    <div class="start-card">
+      <h1>🏢 實景教室 3D 射擊模擬</h1>
+      <p>
+        已根據你的照片還原教室佈局：深灰方格地毯、窗外綠樹、靠窗三台電腦、白色課桌與洞洞椅、右側電子白板與角落講師桌。<br>
+        支援螢幕擊碎特效、彈孔火花與合成音效！
+      </p>
+      <div class="start-btn">點擊畫面進入 3D 場景</div>
+    </div>
+  </div>
+
+  <!-- Three.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <script>
+    // =========================================================================
+    // 1. Web Audio API 即時音效合成器（免外部音檔：槍聲、彈殼、碎玻璃、換彈）
+    // =========================================================================
+    class SoundFX {
+      constructor() {
+        this.ctx = null;
+      }
+      init() {
+        if (!this.ctx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AudioCtx();
+        }
+        if (this.ctx.state === "suspended") this.ctx.resume();
+      }
+      playGunshot() {
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
+
+        // 白噪音爆破聲
+        const bufferSize = this.ctx.sampleRate * 0.16;
+        const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const out = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          out[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.035));
+        }
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = noiseBuffer;
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = "bandpass";
+        filter.frequency.setValueAtTime(1100, t);
+        filter.Q.value = 0.7;
+
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.55, t);
+        gain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.ctx.destination);
+        noise.start(t);
+
+        // 低頻槍膛震擊感
+        const osc = this.ctx.createOscillator();
+        const oscGain = this.ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(155, t);
+        osc.frequency.exponentialRampToValueAtTime(38, t + 0.09);
+        oscGain.gain.setValueAtTime(0.6, t);
+        oscGain.gain.exponentialRampToValueAtTime(0.01, t + 0.09);
+        osc.connect(oscGain);
+        oscGain.connect(this.ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.09);
+      }
+
+      playGlassBreak() {
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
+        [2400, 3150, 4200, 1850].forEach((freq, idx) => {
+          const osc = this.ctx.createOscillator();
+          const g = this.ctx.createGain();
+          osc.type = "sawtooth";
+          osc.frequency.setValueAtTime(freq, t + idx * 0.018);
+          osc.frequency.exponentialRampToValueAtTime(freq * 0.45, t + 0.14 + idx * 0.02);
+          g.gain.setValueAtTime(0.14, t + idx * 0.018);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.16 + idx * 0.02);
+          osc.connect(g);
+          g.connect(this.ctx.destination);
+          osc.start(t + idx * 0.018);
+          osc.stop(t + 0.18 + idx * 0.02);
+        });
+      }
+
+      playImpact(isMetal = false) {
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = isMetal ? "square" : "sine";
+        osc.frequency.setValueAtTime(isMetal ? 820 : 190, t);
+        osc.frequency.exponentialRampToValueAtTime(65, t + 0.06);
+        g.gain.setValueAtTime(0.18, t);
+        g.gain.exponentialRampToValueAtTime(0.005, t + 0.06);
+        osc.connect(g);
+        g.connect(this.ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.065);
+      }
+
+      playReload() {
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
+        [0, 0.22].forEach((delay, i) => {
+          const osc = this.ctx.createOscillator();
+          const g = this.ctx.createGain();
+          osc.type = "triangle";
+          osc.frequency.setValueAtTime(i === 0 ? 420 : 680, t + delay);
+          g.gain.setValueAtTime(0.18, t + delay);
+          g.gain.exponentialRampToValueAtTime(0.005, t + delay + 0.06);
+          osc.connect(g);
+          g.connect(this.ctx.destination);
+          osc.start(t + delay);
+          osc.stop(t + delay + 0.065);
+        });
+      }
+    }
+    const sfx = new SoundFX();
+
+    // =========================================================================
+    // 2. 程序化貼圖生成（完美重現照片中的方格地毯、礦纖天花板、窗外綠意、洞洞椅）
+    // =========================================================================
+    function createCarpetTexture() {
+      const c = document.createElement("canvas");
+      c.width = 256;
+      c.height = 256;
+      const ctx = c.getContext("2d");
+      // 交錯深灰方塊地毯
+      for (let ty = 0; ty < 2; ty++) {
+        for (let tx = 0; tx < 2; tx++) {
+          const base = (tx + ty) % 2 === 0 ? 54 : 48;
+          ctx.fillStyle = `rgb(${base},${base + 1},${base + 2})`;
+          ctx.fillRect(tx * 128, ty * 128, 128, 128);
+          // 纖維雜訊與織紋
+          for (let i = 0; i < 2400; i++) {
+            const x = tx * 128 + Math.random() * 128;
+            const y = ty * 128 + Math.random() * 128;
+            const v = base + (Math.random() * 18 - 9);
+            ctx.fillStyle = `rgb(${v},${v},${v + 1})`;
+            ctx.fillRect(x, y, 2, 2);
+          }
+          ctx.strokeStyle = "rgba(30,32,35,0.45)";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(tx * 128, ty * 128, 128, 128);
+        }
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(7, 9);
+      return tex;
+    }
+
+    function createCeilingTexture() {
+      const c = document.createElement("canvas");
+      c.width = 256;
+      c.height = 256;
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = "#e3e7eb";
+      ctx.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 1800; i++) {
+        ctx.fillStyle = Math.random() > 0.5 ? "#d8dde2" : "#edf0f3";
+        ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+      }
+      ctx.strokeStyle = "#b5bcc4";
+      ctx.lineWidth = 6;
+      ctx.strokeRect(0, 0, 256, 256);
+      ctx.strokeRect(128, 0, 128, 256);
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(7, 9);
+      return tex;
+    }
+
+    function createFoliageBackdropTexture() {
+      const c = document.createElement("canvas");
+      c.width = 512;
+      c.height = 384;
+      const ctx = c.getContext("2d");
+      const grad = ctx.createLinearGradient(0, 0, 0, 384);
+      grad.addColorStop(0, "#cfe8d5");
+      grad.addColorStop(0.3, "#6ea372");
+      grad.addColorStop(1, "#2f5934");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 512, 384);
+
+      // 右側少許紅磚山坡牆影（對應照片最右窗外細節）
+      ctx.fillStyle = "#b58b72";
+      ctx.fillRect(455, 80, 57, 190);
+
+      // 茂密樹葉筆觸（對應照片窗外滿滿的綠植坡地）
+      const greens = ["#244728", "#356839", "#4f8752", "#6da86d", "#8ec489", "#b7e0ad", "#1d3820"];
+      for (let i = 0; i < 3200; i++) {
+        ctx.fillStyle = greens[Math.floor(Math.random() * greens.length)];
+        const x = Math.random() * 500;
+        const y = 15 + Math.random() * 369;
+        const r = 4 + Math.random() * 14;
+        ctx.beginPath();
+        ctx.ellipse(x, y, r, r * 0.65, Math.random() * Math.PI, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      return new THREE.CanvasTexture(c);
+    }
+
+    function createScreenCanvasTexture(isSmartboard = false, broken = false) {
+      const c = document.createElement("canvas");
+      c.width = 256;
+      c.height = 160;
+      const ctx = c.getContext("2d");
+
+      if (isSmartboard) {
+        const g = ctx.createLinearGradient(0, 0, 256, 160);
+        g.addColorStop(0, "#8fa39b");
+        g.addColorStop(0.5, "#788d85");
+        g.addColorStop(1, "#5d7069");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, 256, 160);
+        // 模擬窗外綠光反射在白板玻璃上
+        ctx.fillStyle = "rgba(215, 240, 225, 0.22)";
+        ctx.fillRect(20, 15, 95, 110);
+      } else {
+        ctx.fillStyle = "#14181d";
+        ctx.fillRect(0, 0, 256, 160);
+        ctx.fillStyle = "rgba(255,255,255,0.05)";
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(140, 0); ctx.lineTo(70, 160); ctx.lineTo(0, 160);
+        ctx.fill();
+      }
+
+      if (broken) {
+        // 蜘蛛網裂痕與故障色塊
+        ctx.fillStyle = isSmartboard ? "#1e293b" : "#090d14";
+        ctx.fillRect(0, 0, 256, 160);
+        const colors = ["#ef4444", "#38bdf8", "#eab308", "#a855f7", "#22c55e"];
+        for (let i = 0; i < 18; i++) {
+          ctx.fillStyle = colors[i % colors.length];
+          ctx.fillRect(Math.random() * 230, Math.random() * 150, 4 + Math.random() * 35, 2 + Math.random() * 6);
+        }
+        const cx = 90 + Math.random() * 76;
+        const cy = 45 + Math.random() * 70;
+        ctx.strokeStyle = "rgba(255,255,255,0.88)";
+        ctx.lineWidth = 1.6;
+        for (let i = 0; i < 22; i++) {
+          const ang = (i / 22) * Math.PI * 2 + Math.random() * 0.2;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx + Math.cos(ang) * 160, cy + Math.sin(ang) * 160);
+          ctx.stroke();
+        }
+      }
+      return new THREE.CanvasTexture(c);
+    }
+
+    // =========================================================================
+    // 3. 初始化 Three.js 場景、渲染器與光影
+    // =========================================================================
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xc8dccb);
+
+    const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.08, 60);
+    // 初始位置完美對應你拍攝照片時站立的右後方視角！
+    const player = {
+      pos: new THREE.Vector3(1.85, 1.68, 3.85),
+      vel: new THREE.Vector3(),
+      yaw: 0.42,
+      pitch: -0.09,
+      height: 1.68,
+      radius: 0.34,
+      onGround: true,
+      bobTimer: 0,
+      isADS: false
+    };
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.domElement.id = "gameCanvas";
+    document.body.appendChild(renderer.domElement);
+
+    // 室內自然採光（模擬後方大落地窗灑入的柔和日光 + 室內漫射光）
+    const hemiLight = new THREE.HemisphereLight(0xdbeafe, 0x3b4046, 0.72);
+    scene.add(hemiLight);
+
+    const windowSunLight = new THREE.DirectionalLight(0xf2fff6, 0.85);
+    windowSunLight.position.set(-0.6, 4.2, -9.5);
+    windowSunLight.target.position.set(0.5, 0, 1.5);
+    windowSunLight.castShadow = true;
+    windowSunLight.shadow.mapSize.set(2048, 2048);
+    windowSunLight.shadow.camera.left = -6;
+    windowSunLight.shadow.camera.right = 6;
+    windowSunLight.shadow.camera.top = 5;
+    windowSunLight.shadow.camera.bottom = -5;
+    windowSunLight.shadow.camera.near = 1;
+    windowSunLight.shadow.camera.far = 20;
+    scene.add(windowSunLight);
+    scene.add(windowSunLight.target);
+
+    const ceilingFill = new THREE.PointLight(0xeef4ff, 0.35, 14);
+    ceilingFill.position.set(0, 2.8, 0.5);
+    scene.add(ceilingFill);
+
+    // =========================================================================
+    // 4. 建立教室建築結構與家具模型（含碰撞箱與可射擊物件清單）
+    // =========================================================================
+    const ROOM_W = 8.2;   // X: -4.1 ~ +4.1
+    const ROOM_D = 10.6;  // Z: -5.5 ~ +5.1
+    const ROOM_H = 3.05;  // Y: 0 ~ 3.05
+
+    const colliders = [];       // AABB 碰撞盒 { minX, maxX, minZ, maxZ, maxY }
+    const shootables = [];      // 所有可接收彈孔或破壞的 Mesh
+    const destructibleScreens = [];
+    const movableProps = [];
+    const targetPopups = [];
+
+    function addCollider(x, z, w, d, h) {
+      colliders.push({
+        minX: x - w / 2,
+        maxX: x + w / 2,
+        minZ: z - d / 2,
+        maxZ: z + d / 2,
+        maxY: h
+      });
+    }
+
+    // 共用材質
+    const carpetMat = new THREE.MeshStandardMaterial({ map: createCarpetTexture(), roughness: 0.95 });
+    const ceilingMat = new THREE.MeshStandardMaterial({ map: createCeilingTexture(), roughness: 0.85 });
+    const whiteWallMat = new THREE.MeshStandardMaterial({ color: 0xdcdfe2, roughness: 0.78 });
+    const greyPartitionMat = new THREE.MeshStandardMaterial({ color: 0x9aa2ab, roughness: 0.68 });
+    const darkTrimMat = new THREE.MeshStandardMaterial({ color: 0x2c323a, roughness: 0.5, metalness: 0.3 });
+    const woodBaseMat = new THREE.MeshStandardMaterial({ color: 0x7c583c, roughness: 0.65 });
+    const tableTopMat = new THREE.MeshStandardMaterial({ color: 0xedeff2, roughness: 0.38 });
+    const tableLegMat = new THREE.MeshStandardMaterial({ color: 0xd4d0cb, roughness: 0.45, metalness: 0.2 });
+    const blackPlasticMat = new THREE.MeshStandardMaterial({ color: 0x1b1e23, roughness: 0.5 });
+    const chromeMat = new THREE.MeshStandardMaterial({ color: 0xc8d0d8, roughness: 0.25, metalness: 0.85 });
+
+    // 1) 地毯地板與天花板
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_D), carpetMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(0, 0, -0.2);
+    floor.receiveShadow = true;
+    scene.add(floor);
+    shootables.push(floor);
+
+    const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_D), ceilingMat);
+    ceiling.rotation.x = Math.PI / 2;
+    ceiling.position.set(0, ROOM_H, -0.2);
+    scene.add(ceiling);
+    shootables.push(ceiling);
+
+    // 天花板嵌入式長條燈具與消防灑水頭（對應照片天花板細節）
+    for (const lz of [-3.2, -0.4, 2.4]) {
+      const lampHousing = new THREE.Mesh(
+        new THREE.BoxGeometry(4.8, 0.04, 0.26),
+        new THREE.MeshStandardMaterial({ color: 0xcfd6de, emissive: 0xdbeafe, emissiveIntensity: 0.35 })
+      );
+      lampHousing.position.set(0, ROOM_H - 0.02, lz);
+      scene.add(lampHousing);
+    }
+    for (const [sx, sz] of [[-1.8, -2.0], [1.8, -2.0], [-1.8, 1.2], [1.8, 1.2]]) {
+      const sprinkler = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.06, 8), chromeMat);
+      sprinkler.position.set(sx, ROOM_H - 0.03, sz);
+      scene.add(sprinkler);
+    }
+
+    // 2) 左側灰色活動隔屏牆（附垂直分割縫隙與頂部黑邊）
+    const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.15, ROOM_H, ROOM_D), greyPartitionMat);
+    leftWall.position.set(-ROOM_W / 2, ROOM_H / 2, -0.2);
+    leftWall.receiveShadow = true;
+    scene.add(leftWall);
+    shootables.push(leftWall);
+
+    const leftTopTrim = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.05, ROOM_D), darkTrimMat);
+    leftTopTrim.position.set(-ROOM_W / 2 + 0.01, ROOM_H - 0.025, -0.2);
+    scene.add(leftTopTrim);
+
+    for (let pz = -4.2; pz <= 4.2; pz += 1.35) {
+      const seam = new THREE.Mesh(new THREE.BoxGeometry(0.02, ROOM_H, 0.02), darkTrimMat);
+      seam.position.set(-ROOM_W / 2 + 0.075, ROOM_H / 2, pz);
+      scene.add(seam);
+    }
+
+    // 3) 右側白牆與木質踢腳板 + 後方入口背牆
+    const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.15, ROOM_H, ROOM_D), whiteWallMat);
+    rightWall.position.set(ROOM_W / 2, ROOM_H / 2, -0.2);
+    rightWall.receiveShadow = true;
+    scene.add(rightWall);
+    shootables.push(rightWall);
+
+    const baseboard = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.09, ROOM_D), woodBaseMat);
+    baseboard.position.set(ROOM_W / 2 - 0.08, 0.045, -0.2);
+    scene.add(baseboard);
+
+    const frontEntranceWall = new THREE.Mesh(new THREE.BoxGeometry(ROOM_W, ROOM_H, 0.15), whiteWallMat);
+    frontEntranceWall.position.set(0, ROOM_H / 2, 5.1);
+    scene.add(frontEntranceWall);
+    shootables.push(frontEntranceWall);
+
+    // 4) 後方三扇大落地窗 + 窗外綠植山坡背景 + 深色捲簾
+    const outsideBackdrop = new THREE.Mesh(
+      new THREE.PlaneGeometry(9.6, 4.2),
+      new THREE.MeshBasicMaterial({ map: createFoliageBackdropTexture() })
+    );
+    outsideBackdrop.position.set(-0.3, 1.65, -6.5);
+    scene.add(outsideBackdrop);
+
+    // 上方窗簾盒樑柱與右側實牆段（對應照片右後方掛電話那面牆）
+    const topHeaderWall = new THREE.Mesh(new THREE.BoxGeometry(ROOM_W, 0.48, 0.22), whiteWallMat);
+    topHeaderWall.position.set(0, ROOM_H - 0.24, -5.45);
+    scene.add(topHeaderWall);
+    shootables.push(topHeaderWall);
+
+    const backRightWallPatch = new THREE.Mesh(new THREE.BoxGeometry(1.95, ROOM_H, 0.22), whiteWallMat);
+    backRightWallPatch.position.set(3.12, ROOM_H / 2, -5.45);
+    scene.add(backRightWallPatch);
+    shootables.push(backRightWallPatch);
+
+    // 窗間立柱與鋁窗框
+    const pillarPositions = [-4.02, -2.02, -0.02, 2.08];
+    pillarPositions.forEach((pxPos) => {
+      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.22, ROOM_H, 0.24), whiteWallMat);
+      pillar.position.set(pxPos, ROOM_H / 2, -5.45);
+      pillar.castShadow = true;
+      scene.add(pillar);
+      shootables.push(pillar);
+    });
+
+    // 三扇窗的深色捲簾與橫向窗框
+    [-3.02, -1.02, 1.03].forEach((wx, idx) => {
+      const blindH = idx === 1 ? 0.34 : 0.16; // 中間那扇捲簾放得稍低（還原照片細節！）
+      const blind = new THREE.Mesh(
+        new THREE.BoxGeometry(1.82, blindH, 0.05),
+        new THREE.MeshStandardMaterial({ color: 0x262d29, roughness: 0.8 })
+      );
+      blind.position.set(wx, ROOM_H - 0.48 - blindH / 2, -5.42);
+      scene.add(blind);
+
+      // 窗戶橫桿與中線鋁框
+      const mullionH = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.04, 0.05), greyPartitionMat);
+      mullionH.position.set(wx, 0.85, -5.46);
+      scene.add(mullionH);
+
+      const mullionV = new THREE.Mesh(new THREE.BoxGeometry(0.04, 2.55, 0.05), greyPartitionMat);
+      mullionV.position.set(wx - 0.2, 1.28, -5.46);
+      scene.add(mullionV);
+    });
+
+    // 牆上掛式電話與透明告示貼紙（照片右後牆細節）
+    const wallPhone = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.26, 0.08), new THREE.MeshStandardMaterial({ color: 0xc8c2b8 }));
+    wallPhone.position.set(2.42, 1.62, -5.32);
+    scene.add(wallPhone);
+    shootables.push(wallPhone);
+
+    // 5) 右側大型互動電子白板（含銀黑外框與下方落地支架腳）
+    function buildSmartboard() {
+      const group = new THREE.Group();
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.38, 2.35), darkTrimMat);
+      frame.position.set(3.96, 1.66, -1.15);
+      frame.castShadow = true;
+      group.add(frame);
+      shootables.push(frame);
+
+      const sbTex = createScreenCanvasTexture(true, false);
+      const screenMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.22, 1.26),
+        new THREE.MeshStandardMaterial({ map: sbTex, roughness: 0.18, metalness: 0.1 })
+      );
+      screenMesh.rotation.y = -Math.PI / 2;
+      screenMesh.position.set(3.91, 1.66, -1.15);
+      screenMesh.userData = { isScreen: true, isSmartboard: true, broken: false };
+      group.add(screenMesh);
+      shootables.push(screenMesh);
+      destructibleScreens.push(screenMesh);
+
+      // 白板下方落地支撐鐵架
+      for (const sz of [-2.05, -0.25]) {
+        const standLeg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.05, 0.06), darkTrimMat);
+        standLeg.position.set(3.95, 0.52, sz);
+        group.add(standLeg);
+      }
+      const bottomBar = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.05, 1.88), darkTrimMat);
+      bottomBar.position.set(3.95, 0.08, -1.15);
+      group.add(bottomBar);
+
+      scene.add(group);
+    }
+    buildSmartboard();
+
+    // =========================================================================
+    // 5. 模組化課桌、洞洞椅、電腦螢幕生成函式（精準對齊照片擺位）
+    // =========================================================================
+    function createWhiteDesk(x, z, width, depth, rotY = 0) {
+      const desk = new THREE.Group();
+      desk.position.set(x, 0, z);
+      desk.rotation.y = rotY;
+
+      const top = new THREE.Mesh(new THREE.BoxGeometry(width, 0.038, depth), tableTopMat);
+      top.position.y = 0.74;
+      top.castShadow = true;
+      top.receiveShadow = true;
+      desk.add(top);
+      shootables.push(top);
+
+      // 桌下橫樑與四隻方管腳
+      const apron = new THREE.Mesh(new THREE.BoxGeometry(width - 0.1, 0.045, depth - 0.1), tableLegMat);
+      apron.position.y = 0.70;
+      desk.add(apron);
+
+      const lx = width / 2 - 0.045;
+      const lz = depth / 2 - 0.045;
+      [[-lx, -lz], [lx, -lz], [-lx, lz], [lx, lz]].forEach(([px, pz]) => {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.72, 0.045), tableLegMat);
+        leg.position.set(px, 0.36, pz);
+        leg.castShadow = true;
+        desk.add(leg);
+        shootables.push(leg);
+      });
+
+      scene.add(desk);
+      const boundW = Math.abs(Math.cos(rotY)) * width + Math.abs(Math.sin(rotY)) * depth;
+      const boundD = Math.abs(Math.sin(rotY)) * width + Math.abs(Math.cos(rotY)) * depth;
+      addCollider(x, z, boundW, boundD, 0.76);
+      return desk;
+    }
+
+    function createChair(x, z, rotY = 0) {
+      const chair = new THREE.Group();
+      chair.position.set(x, 0, z);
+      chair.rotation.y = rotY;
+
+      // 坐墊
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.035, 0.44), blackPlasticMat);
+      seat.position.y = 0.44;
+      seat.castShadow = true;
+      chair.add(seat);
+      shootables.push(seat);
+
+      // 椅背（微傾黑色塑膠背板）
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.32, 0.028), blackPlasticMat);
+      back.position.set(0, 0.65, 0.21);
+      back.rotation.x = 0.08;
+      back.castShadow = true;
+      chair.add(back);
+      shootables.push(back);
+
+      // 照片標誌性的銀色細雪橇金屬椅腳 (Sled Base)
+      for (const side of [-0.21, 0.21]) {
+        const frontLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.44, 6), chromeMat);
+        frontLeg.position.set(side, 0.22, -0.19);
+        chair.add(frontLeg);
+
+        const backLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.64, 6), chromeMat);
+        backLeg.position.set(side, 0.32, 0.20);
+        chair.add(backLeg);
+
+        const runner = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.015, 0.42), chromeMat);
+        runner.position.set(side, 0.01, 0);
+        chair.add(runner);
+      }
+
+      chair.userData = {
+        origPos: chair.position.clone(),
+        origRotY: rotY,
+        knockVel: new THREE.Vector3(),
+        angVel: 0
+      };
+      seat.userData.parentProp = chair;
+      back.userData.parentProp = chair;
+      movableProps.push(chair);
+      scene.add(chair);
+      return chair;
+    }
+
+    function createMonitor(x, y, z, rotY = 0) {
+      const mon = new THREE.Group();
+      mon.position.set(x, y, z);
+      mon.rotation.y = rotY;
+
+      const base = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.015, 0.16), blackPlasticMat);
+      base.position.y = 0.008;
+      mon.add(base);
+
+      const neck = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.16, 0.035), blackPlasticMat);
+      neck.position.set(0, 0.09, -0.03);
+      mon.add(neck);
+
+      const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.34, 0.03), blackPlasticMat);
+      bezel.position.set(0, 0.28, 0);
+      bezel.castShadow = true;
+      mon.add(bezel);
+      shootables.push(bezel);
+
+      const scrTex = createScreenCanvasTexture(false, false);
+      const panel = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.52, 0.30),
+        new THREE.MeshStandardMaterial({ map: scrTex, roughness: 0.2 })
+      );
+      panel.position.set(0, 0.28, 0.017);
+      panel.userData = { isScreen: true, isSmartboard: false, broken: false };
+      mon.add(panel);
+      shootables.push(panel);
+      destructibleScreens.push(panel);
+
+      scene.add(mon);
+      return mon;
+    }
+
+    // ---------------- 擺放照片中的所有桌椅與電腦 ----------------
+    // A. 靠窗後排三張電腦長桌 + 3 台黑色螢幕 + 電腦椅
+    createWhiteDesk(-2.45, -4.45, 1.35, 0.68);
+    createWhiteDesk(-1.05, -4.45, 1.35, 0.68);
+    createWhiteDesk(0.35, -4.45, 1.35, 0.68);
+
+    createMonitor(-2.45, 0.76, -4.55, 0.04);
+    createMonitor(-1.05, 0.76, -4.55, 0.0);
+    createMonitor(0.35, 0.76, -4.55, -0.05);
+
+    createChair(-2.55, -3.92, 0.35);
+    createChair(-1.08, -3.92, -0.08);
+    createChair(0.32, -3.92, 0.05);
+
+    // B. 右後方角落講師桌（白色增高架 + 斜放螢幕 + 椅子，對應照片右後方）
+    createWhiteDesk(3.38, -3.55, 1.15, 0.68, Math.PI / 2);
+    const whiteRiser = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.24, 0.42), tableTopMat);
+    whiteRiser.position.set(3.55, 0.88, -3.72);
+    whiteRiser.castShadow = true;
+    scene.add(whiteRiser);
+    shootables.push(whiteRiser);
+    createMonitor(3.52, 1.00, -3.72, -Math.PI / 2 - 0.22);
+    createChair(2.88, -3.55, -Math.PI / 2 + 0.2);
+
+    // C. 中後排雙人白桌 + 2 張洞洞椅
+    createWhiteDesk(-0.62, -2.55, 1.65, 0.72);
+    createChair(-1.05, -2.02, 0.06);
+    createChair(-0.18, -2.02, -0.05);
+
+    // D. 中左排長條三人白桌 + 3 張洞洞椅（完全對應照片中景左側）
+    createWhiteDesk(-2.95, -0.95, 1.25, 0.76);
+    createWhiteDesk(-1.68, -0.95, 1.25, 0.76);
+    createChair(-3.12, -0.40, 0.08);
+    createChair(-2.22, -0.40, -0.04);
+    createChair(-1.35, -0.40, 0.03);
+    createChair(-2.55, -1.52, Math.PI); // 桌後側預備椅
+
+    // E. 左前景雙人白桌 + 前後洞洞椅（完全對應照片左下角最近鏡頭的桌子！）
+    createWhiteDesk(-2.45, 1.75, 1.55, 0.82);
+    createChair(-2.55, 2.28, 0.12);
+    createChair(-1.95, 1.18, Math.PI - 0.08);
+
+    // F. 可選擇開啟的戰術練習立靶（按 [T] 升降）
+    const targetCoords = [
+      [-2.45, 0.76, -4.2],
+      [-0.62, 0.76, -2.55],
+      [2.2, 0.0, -1.8],
+      [-1.7, 0.76, -0.95],
+      [0.8, 0.0, -3.4]
+    ];
+
+    function createTacticalTarget(x, y, z) {
+      const g = new THREE.Group();
+      g.position.set(x, y, z);
+
+      const c = document.createElement("canvas");
+      c.width = 128; c.height = 192;
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = "#eab308";
+      ctx.fillRect(8, 8, 112, 176);
+      ctx.fillStyle = "#1e293b";
+      ctx.beginPath();
+      ctx.arc(64, 54, 24, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(28, 78, 72, 90);
+      ctx.strokeStyle = "#ef4444";
+      ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.arc(64, 115, 18, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(64, 54, 8, 0, Math.PI * 2); ctx.stroke();
+
+      const board = new THREE.Mesh(
+        new THREE.BoxGeometry(0.42, 0.68, 0.03),
+        new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(c), roughness: 0.5 })
+      );
+      board.position.y = 0.34;
+      board.userData = { isTarget: true, parentTarget: g };
+      g.add(board);
+      shootables.push(board);
+
+      g.visible = false;
+      g.scale.y = 0.01;
+      g.userData = { active: false, downTimer: 0 };
+      scene.add(g);
+      targetPopups.push(g);
+    }
+    targetCoords.forEach(([tx, ty, tz]) => createTacticalTarget(tx, ty, tz));
+
+    let targetsEnabled = false;
+    function toggleTargets() {
+      targetsEnabled = !targetsEnabled;
+      targetPopups.forEach((t) => {
+        t.visible = targetsEnabled;
+        t.userData.active = targetsEnabled;
+        t.userData.downTimer = 0;
+        t.scale.y = targetsEnabled ? 1 : 0.01;
+      });
+    }
+
+    // =========================================================================
+    // 6. 第一人稱 3D 戰術步槍模型 + 槍口火光（掛載於 Camera）
+    // =========================================================================
+    const weaponRig = new THREE.Group();
+    const gunGroup = new THREE.Group();
+
+    const gunMetal = new THREE.MeshStandardMaterial({ color: 0x22272e, roughness: 0.32, metalness: 0.78 });
+    const gunAccent = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.4, metalness: 0.6 });
+
+    // 槍身主體
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.058, 0.078, 0.36), gunMetal);
+    gunGroup.add(receiver);
+
+    // 戰術護木與長槍管
+    const handguard = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.062, 0.24), gunAccent);
+    handguard.position.set(0, 0.004, -0.26);
+    gunGroup.add(handguard);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.22, 10), gunMetal);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.012, -0.43);
+    gunGroup.add(barrel);
+
+    // 內紅點瞄準鏡框
+    const sightBase = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.036, 0.08), gunMetal);
+    sightBase.position.set(0, 0.055, -0.04);
+    gunGroup.add(sightBase);
+    const redDot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.0035, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0x00ff88 })
+    );
+    redDot.position.set(0, 0.062, -0.04);
+    gunGroup.add(redDot);
+
+    // 弧形彈匣
+    const magazine = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.16, 0.065), gunAccent);
+    magazine.position.set(0, -0.10, -0.06);
+    magazine.rotation.x = 0.18;
+    gunGroup.add(magazine);
+
+    // 槍口火光與動態照明
+    const muzzleFlashMesh = new THREE.Mesh(
+      new THREE.ConeGeometry(0.055, 0.18, 7),
+      new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0 })
+    );
+    muzzleFlashMesh.rotation.x = -Math.PI / 2;
+    muzzleFlashMesh.position.set(0, 0.012, -0.58);
+    gunGroup.add(muzzleFlashMesh);
+
+    const muzzleLight = new THREE.PointLight(0xffaa33, 0, 5.5);
+    muzzleLight.position.set(0, 0.05, -0.62);
+    gunGroup.add(muzzleLight);
+
+    const HIP_POS = new THREE.Vector3(0.24, -0.21, -0.42);
+    const ADS_POS = new THREE.Vector3(0.0, -0.155, -0.32);
+    gunGroup.position.copy(HIP_POS);
+
+    weaponRig.add(gunGroup);
+    camera.add(weaponRig);
+    scene.add(camera);
+
+    // =========================================================================
+    // 7. 射擊系統、彈孔貼花、火花粒子、拋殼物理
+    // =========================================================================
+    const decals = [];
+    const particles = [];
+    const shells = [];
+    const MAX_DECALS = 90;
+
+    let ammo = 30;
+    let isReloading = false;
+    let reloadProgress = 0;
+    let recoilOffset = 0;
+    let recoilPitch = 0;
+    let isMouseDown = false;
+    let fireCooldown = 0;
+    let hitScore = 0;
+
+    const raycaster = new THREE.Raycaster();
+    const crosshairEl = document.getElementById("crosshair");
+    const hitMarkerEl = document.getElementById("hitMarker");
+    const ammoCurrentEl = document.getElementById("ammoCurrent");
+    const hitCountEl = document.getElementById("hitCount");
+
+    function showHitMarker() {
+      hitMarkerEl.style.opacity = "1";
+      clearTimeout(hitMarkerEl._timer);
+      hitMarkerEl._timer = setTimeout(() => {
+        hitMarkerEl.style.opacity = "0";
+      }, 95);
+    }
+
+    function spawnSparks(point, normal, count = 10, colorHex = 0xffbe0b) {
+      for (let i = 0; i < count; i++) {
+        const p = new THREE.Mesh(
+          new THREE.BoxGeometry(0.022, 0.022, 0.022),
+          new THREE.MeshBasicMaterial({ color: colorHex })
+        );
+        p.position.copy(point).addScaledVector(normal, 0.02);
+        const vel = normal.clone().multiplyScalar(1.5 + Math.random() * 2.8);
+        vel.x += (Math.random() - 0.5) * 3.2;
+        vel.y += Math.random() * 2.5;
+        vel.z += (Math.random() - 0.5) * 3.2;
+        scene.add(p);
+        particles.push({ mesh: p, vel, life: 0.35 + Math.random() * 0.25 });
+      }
+    }
+
+    function spawnBulletHole(point, normal) {
+      const hole = new THREE.Mesh(
+        new THREE.CircleGeometry(0.024, 8),
+        new THREE.MeshBasicMaterial({ color: 0x111317, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 })
+      );
+      hole.position.copy(point).addScaledVector(normal, 0.004);
+      hole.lookAt(point.clone().add(normal));
+      scene.add(hole);
+      decals.push(hole);
+      if (decals.length > MAX_DECALS) {
+        const old = decals.shift();
+        scene.remove(old);
+      }
+    }
+
+    function ejectShellCasing() {
+      const shell = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.006, 0.006, 0.026, 6),
+        new THREE.MeshStandardMaterial({ color: 0xeab308, metalness: 0.85, roughness: 0.25 })
+      );
+      const worldPos = new THREE.Vector3(0.08, 0.02, -0.05);
+      gunGroup.localToWorld(worldPos);
+      shell.position.copy(worldPos);
+
+      const rightDir = new THREE.Vector3(1, 0.65, 0.15).applyQuaternion(camera.quaternion).normalize();
+      const vel = rightDir.multiplyScalar(2.2 + Math.random() * 0.8);
+      scene.add(shell);
+      shells.push({ mesh: shell, vel, life: 1.8 });
+    }
+
+    function shoot() {
+      if (isReloading || ammo <= 0) {
+        if (ammo <= 0 && !isReloading) startReload();
+        return;
+      }
+
+      ammo--;
+      ammoCurrentEl.textContent = ammo;
+      fireCooldown = 0.105; // 射速約 570 RPM
+
+      sfx.playGunshot();
+      recoilOffset = 0.065;
+      recoilPitch += player.isADS ? 0.012 : 0.022;
+      player.yaw += (Math.random() - 0.5) * 0.012;
+
+      muzzleFlashMesh.material.opacity = 0.92;
+      muzzleFlashMesh.rotation.z = Math.random() * Math.PI * 2;
+      muzzleLight.intensity = 2.4;
+      crosshairEl.style.transform = "translate(-50%, -50%) scale(1.45)";
+      setTimeout(() => {
+        crosshairEl.style.transform = "translate(-50%, -50%) scale(1)";
+      }, 65);
+
+      ejectShellCasing();
+
+      // 射線檢測
+      raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+      const hits = raycaster.intersectObjects(shootables, false);
+
+      if (hits.length > 0) {
+        const hit = hits[0];
+        const obj = hit.object;
+        const normal = hit.face ? hit.face.normal.clone().transformDirection(obj.matrixWorld).normalize() : new THREE.Vector3(0, 1, 0);
+
+        // 1. 射中電腦螢幕或大型電子白板
+        if (obj.userData.isScreen) {
+          if (!obj.userData.broken) {
+            obj.userData.broken = true;
+            obj.material.map = createScreenCanvasTexture(obj.userData.isSmartboard, true);
+            obj.material.needsUpdate = true;
+            sfx.playGlassBreak();
+            hitScore++;
+            hitCountEl.textContent = hitScore;
+          } else {
+            sfx.playImpact(true);
+          }
+          showHitMarker();
+          spawnSparks(hit.point, normal, 18, 0x38bdf8);
+        }
+        // 2. 射中戰術靶牌
+        else if (obj.userData.isTarget) {
+          const tGroup = obj.userData.parentTarget;
+          if (tGroup.userData.active && tGroup.userData.downTimer <= 0) {
+            tGroup.userData.downTimer = 2.2;
+            hitScore++;
+            hitCountEl.textContent = hitScore;
+            sfx.playImpact(true);
+            showHitMarker();
+            spawnSparks(hit.point, normal, 14, 0xfbbf24);
+          }
+        }
+        // 3. 射中洞洞椅（物理震退效果）
+        else if (obj.userData.parentProp) {
+          const prop = obj.userData.parentProp;
+          const pushDir = raycaster.ray.direction.clone();
+          pushDir.y = 0;
+          prop.userData.knockVel.addScaledVector(pushDir.normalize(), 1.6);
+          prop.userData.angVel += (Math.random() - 0.5) * 5;
+          sfx.playImpact(true);
+          showHitMarker();
+          spawnSparks(hit.point, normal, 8, 0xe2e8f0);
+        }
+        // 4. 一般牆面、課桌、地毯彈孔
+        else {
+          sfx.playImpact(false);
+          spawnBulletHole(hit.point, normal);
+          spawnSparks(hit.point, normal, 7, 0xfde047);
+        }
+      }
+    }
+
+    function startReload() {
+      if (isReloading || ammo === 30) return;
+      isReloading = true;
+      reloadProgress = 0;
+      sfx.playReload();
+    }
+
+    function repairRoom() {
+      // 清除所有彈孔
+      while (decals.length > 0) {
+        scene.remove(decals.pop());
+      }
+      // 修復所有螢幕與電子白板
+      destructibleScreens.forEach((scr) => {
+        scr.userData.broken = false;
+        scr.material.map = createScreenCanvasTexture(scr.userData.isSmartboard, false);
+        scr.material.needsUpdate = true;
+      });
+      // 歸位所有椅子
+      movableProps.forEach((chair) => {
+        chair.position.copy(chair.userData.origPos);
+        chair.rotation.y = chair.userData.origRotY;
+        chair.userData.knockVel.set(0, 0, 0);
+        chair.userData.angVel = 0;
+      });
+    }
+
+    // =========================================================================
+    // 8. 鍵盤與滑鼠 Pointer Lock 控制
+    // =========================================================================
+    const keys = {};
+    const overlay = document.getElementById("overlay");
+    let isLocked = false;
+
+    overlay.addEventListener("click", () => {
+      sfx.init();
+      renderer.domElement.requestPointerLock();
+    });
+
+    document.addEventListener("pointerlockchange", () => {
+      isLocked = document.pointerLockElement === renderer.domElement;
+      overlay.classList.toggle("hidden", isLocked);
+      if (!isLocked) isMouseDown = false;
+    });
+
+    document.addEventListener("mousemove", (e) => {
+      if (!isLocked) return;
+      const sens = player.isADS ? 0.0013 : 0.0022;
+      player.yaw -= e.movementX * sens;
+      player.pitch -= e.movementY * sens;
+      player.pitch = Math.max(-Math.PI / 2 + 0.08, Math.min(Math.PI / 2 - 0.08, player.pitch));
+    });
+
+    window.addEventListener("mousedown", (e) => {
+      if (!isLocked) return;
+      if (e.button === 0) {
+        isMouseDown = true;
+        if (fireCooldown <= 0) shoot();
+      } else if (e.button === 2) {
+        player.isADS = true;
+      }
+    });
+
+    window.addEventListener("mouseup", (e) => {
+      if (e.button === 0) isMouseDown = false;
+      if (e.button === 2) player.isADS = false;
+    });
+
+    window.addEventListener("contextmenu", (e) => e.preventDefault());
+
+    window.addEventListener("keydown", (e) => {
+      keys[e.code] = true;
+      if (e.code === "KeyR") startReload();
+      if (e.code === "KeyG") repairRoom();
+      if (e.code === "KeyT") toggleTargets();
+      if (e.code === "Space" && player.onGround && isLocked) {
+        player.vel.y = 4.6;
+        player.onGround = false;
+      }
+    });
+
+    window.addEventListener("keyup", (e) => {
+      keys[e.code] = false;
+    });
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // =========================================================================
+    // 9. 玩家移動碰撞與主遊戲迴圈
+    // =========================================================================
+    function resolveCollisions(nextPos) {
+      // 房間四周牆壁邊界
+      const margin = player.radius;
+      nextPos.x = Math.max(-ROOM_W / 2 + margin + 0.08, Math.min(ROOM_W / 2 - margin - 0.12, nextPos.x));
+      nextPos.z = Math.max(-5.35 + margin, Math.min(5.0 - margin, nextPos.z));
+
+      let supportHeight = 0;
+
+      // 課桌碰撞與跳上桌面判定
+      for (const box of colliders) {
+        const expandedMinX = box.minX - margin;
+        const expandedMaxX = box.maxX + margin;
+        const expandedMinZ = box.minZ - margin;
+        const expandedMaxZ = box.maxZ + margin;
+
+        if (
+          nextPos.x > expandedMinX && nextPos.x < expandedMaxX &&
+          nextPos.z > expandedMinZ && nextPos.z < expandedMaxZ
+        ) {
+          const feetY = nextPos.y - player.height;
+          if (feetY >= box.maxY - 0.18) {
+            // 站在桌面上
+            supportHeight = Math.max(supportHeight, box.maxY);
+          } else {
+            // 水平推離桌邊
+            const dx1 = Math.abs(nextPos.x - expandedMinX);
+            const dx2 = Math.abs(expandedMaxX - nextPos.x);
+            const dz1 = Math.abs(nextPos.z - expandedMinZ);
+            const dz2 = Math.abs(expandedMaxZ - nextPos.z);
+            const minPen = Math.min(dx1, dx2, dz1, dz2);
+            if (minPen === dx1) nextPos.x = expandedMinX;
+            else if (minPen === dx2) nextPos.x = expandedMaxX;
+            else if (minPen === dz1) nextPos.z = expandedMinZ;
+            else nextPos.z = expandedMaxZ;
+          }
+        }
+      }
+      return supportHeight;
+    }
+
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = Math.min(clock.getDelta(), 0.05);
+
+      // 1. 玩家移動與重力物理
+      if (isLocked) {
+        const forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+        const right = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
+        const moveDir = new THREE.Vector3();
+
+        if (keys["KeyW"] || keys["ArrowUp"]) moveDir.add(forward);
+        if (keys["KeyS"] || keys["ArrowDown"]) moveDir.sub(forward);
+        if (keys["KeyD"] || keys["ArrowRight"]) moveDir.add(right);
+        if (keys["KeyA"] || keys["ArrowLeft"]) moveDir.sub(right);
+
+        const isSprinting = (keys["ShiftLeft"] || keys["ShiftRight"]) && !player.isADS;
+        const speed = player.isADS ? 2.2 : (isSprinting ? 5.6 : 3.7);
+
+        if (moveDir.lengthSq() > 0) {
+          moveDir.normalize();
+          player.pos.addScaledVector(moveDir, speed * dt);
+          if (player.onGround) player.bobTimer += dt * (isSprinting ? 13 : 9);
+        } else {
+          player.bobTimer = 0;
+        }
+
+        // 重力
+        player.vel.y -= 12.5 * dt;
+        player.pos.y += player.vel.y * dt;
+
+        const floorY = resolveCollisions(player.pos);
+        if (player.pos.y <= floorY + player.height) {
+          player.pos.y = floorY + player.height;
+          player.vel.y = 0;
+          player.onGround = true;
+        }
+      }
+
+      // 2. 全自動連發與換彈動畫
+      if (fireCooldown > 0) fireCooldown -= dt;
+      if (isMouseDown && isLocked && fireCooldown <= 0) {
+        shoot();
+      }
+
+      if (isReloading) {
+        reloadProgress += dt / 1.15;
+        gunGroup.rotation.x = -Math.sin(Math.min(reloadProgress, 1) * Math.PI) * 0.65;
+        gunGroup.rotation.z = Math.sin(Math.min(reloadProgress, 1) * Math.PI) * 0.35;
+        if (reloadProgress >= 1) {
+          isReloading = false;
+          ammo = 30;
+          ammoCurrentEl.textContent = ammo;
+          gunGroup.rotation.set(0, 0, 0);
+        }
+      }
+
+      // 3. 槍口火光衰減、ADS 瞄準鏡縮放與槍枝晃動
+      if (muzzleFlashMesh.material.opacity > 0) {
+        muzzleFlashMesh.material.opacity = Math.max(0, muzzleFlashMesh.material.opacity - dt * 18);
+        muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 35);
+      }
+
+      recoilOffset = THREE.MathUtils.lerp(recoilOffset, 0, dt * 16);
+      recoilPitch = THREE.MathUtils.lerp(recoilPitch, 0, dt * 12);
+
+      const targetFov = player.isADS ? 48 : 68;
+      if (Math.abs(camera.fov - targetFov) > 0.1) {
+        camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, dt * 14);
+        camera.updateProjectionMatrix();
+      }
+
+      const targetGunPos = player.isADS ? ADS_POS : HIP_POS;
+      gunGroup.position.lerp(targetGunPos, dt * 15);
+      gunGroup.position.z += recoilOffset;
+      gunGroup.position.y += Math.sin(player.bobTimer * 2) * 0.004;
+      gunGroup.position.x += Math.cos(player.bobTimer) * 0.003;
+
+      // 更新相機姿態
+      camera.position.copy(player.pos);
+      camera.position.y += Math.sin(player.bobTimer * 2) * 0.025;
+      camera.rotation.order = "YXZ";
+      camera.rotation.y = player.yaw;
+      camera.rotation.x = Math.min(Math.PI / 2 - 0.05, player.pitch + recoilPitch);
+
+      // 4. 更新椅子受擊滑動、戰術靶牌起落、火花與彈殼物理
+      movableProps.forEach((chair) => {
+        if (chair.userData.knockVel.lengthSq() > 0.001 || Math.abs(chair.userData.angVel) > 0.01) {
+          chair.position.addScaledVector(chair.userData.knockVel, dt);
+          chair.position.x = Math.max(-3.7, Math.min(3.7, chair.position.x));
+          chair.position.z = Math.max(-5.0, Math.min(4.6, chair.position.z));
+          chair.rotation.y += chair.userData.angVel * dt;
+          chair.userData.knockVel.multiplyScalar(0.86);
+          chair.userData.angVel *= 0.86;
+        }
+      });
+
+      targetPopups.forEach((t) => {
+        if (!t.visible) return;
+        if (t.userData.downTimer > 0) {
+          t.userData.downTimer -= dt;
+          t.rotation.x = THREE.MathUtils.lerp(t.rotation.x, -Math.PI / 2, dt * 14);
+        } else {
+          t.rotation.x = THREE.MathUtils.lerp(t.rotation.x, 0, dt * 10);
+        }
+      });
+
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.life -= dt;
+        p.vel.y -= 9.8 * dt;
+        p.mesh.position.addScaledVector(p.vel, dt);
+        if (p.life <= 0) {
+          scene.remove(p.mesh);
+          particles.splice(i, 1);
+        }
+      }
+
+      for (let i = shells.length - 1; i >= 0; i--) {
+        const s = shells[i];
+        s.life -= dt;
+        s.vel.y -= 9.8 * dt;
+        s.mesh.position.addScaledVector(s.vel, dt);
+        s.mesh.rotation.x += 12 * dt;
+        s.mesh.rotation.z += 9 * dt;
+        if (s.mesh.position.y < 0.01) {
+          s.mesh.position.y = 0.01;
+          s.vel.y = Math.abs(s.vel.y) * 0.35;
+          s.vel.x *= 0.6;
+          s.vel.z *= 0.6;
+        }
+        if (s.life <= 0) {
+          scene.remove(s.mesh);
+          shells.splice(i, 1);
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+
+
+</body></html>
